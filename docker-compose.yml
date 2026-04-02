@@ -77,6 +77,8 @@ services:
 
       KAFKA_BROKER: kafka:9092
 
+      ENTRY_FILE: test.js
+
     restart: always
 
 

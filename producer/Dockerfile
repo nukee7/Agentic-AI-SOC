@@ -10,4 +10,4 @@ COPY . .
 
 RUN npm run build
 
-CMD ["node", "dist/producer.js"]
+CMD ["sh", "-c", "node dist/${ENTRY_FILE}"]

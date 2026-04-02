@@ -1,3 +1,1 @@
-import { runDetectionAgent } from "./agents/detectionAgent";
-
-runDetectionAgent();
+import "./agents/detectionAgent";

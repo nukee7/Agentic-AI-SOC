@@ -12,8 +12,6 @@ services:
 
       ZOOKEEPER_CLIENT_PORT: 2181
 
-      ZOOKEEPER_TICK_TIME: 2000
-
     ports:
 
       - "2181:2181"
@@ -38,11 +36,16 @@ services:
 
       KAFKA_BROKER_ID: 1
 
-      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+      KAFKA_ZOOKEEPER_CONNECT:
+        zookeeper:2181
 
-      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092
+      KAFKA_ADVERTISED_LISTENERS:
+        PLAINTEXT://kafka:9092
 
-      KAFKA_LISTENERS: PLAINTEXT://0.0.0.0:9092
+      KAFKA_LISTENERS:
+        PLAINTEXT://0.0.0.0:9092
+
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
 
       KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
 
@@ -60,22 +63,40 @@ services:
 
 
 
+  producer:
+
+    build: ./producer
+
+    container_name: producer
+
+    depends_on:
+
+      - kafka
+
+    environment:
+
+      KAFKA_BROKER: kafka:9092
+
+    restart: always
+
+
+
   detection-agent:
 
-    build: .
+    build: ./detection-agent
 
     container_name: detection-agent
 
     depends_on:
 
       - kafka
-
       - redis
 
     environment:
 
       KAFKA_BROKER: kafka:9092
 
-      REDIS_URL: redis://redis:6379
+      REDIS_URL:
+        redis://redis:6379
 
     restart: always

@@ -1,5 +1,5 @@
 import { Kafka } from "kafkajs"
-import { SecurityEvent } from "../types/security"
+import { SecurityEvent } from "../../detection-agent/src/types/security"
 
 const kafka = new Kafka({
 

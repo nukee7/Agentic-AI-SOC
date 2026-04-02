@@ -10,4 +10,4 @@ COPY . .
 
 RUN npm run build
 
-CMD ["node", "dist/consumer/detectionAgent.js"]
+CMD ["node", "dist/producer.js"]

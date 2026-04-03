@@ -61,6 +61,30 @@ services:
 
 
 
+  postgres:
+
+    image: postgres:15
+
+    container_name: postgres
+
+    environment:
+
+      POSTGRES_USER: soc_user
+
+      POSTGRES_PASSWORD: soc_password
+
+      POSTGRES_DB: soc_db
+
+    ports:
+
+      - "5432:5432"
+
+    volumes:
+
+      - postgres_data:/var/lib/postgresql/data
+
+
+
   producer:
 
     build: ./producer
@@ -111,13 +135,27 @@ services:
     depends_on:
 
       - kafka
+      - postgres
 
     environment:
 
       KAFKA_BROKER: kafka:9092
+      
+      POSTGRES_HOST: postgres
+
+      POSTGRES_USER: soc_user
+
+      POSTGRES_PASSWORD: soc_password
+
+      POSTGRES_DB: soc_db
 
     ports:
 
       - "3000:3000"
 
     restart: always
+
+
+volumes:
+
+  postgres_data:

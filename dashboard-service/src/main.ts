@@ -1,6 +1,8 @@
 import express from "express"
 import { Kafka } from "kafkajs"
 import { Client } from "pg"
+import { WebSocketServer } from "ws"
+import http from "http"
 
 /*
 CONFIGURATION
@@ -39,6 +41,14 @@ SERVICES
 
 const app = express()
 
+const server =
+  http.createServer(app)
+
+const wss =
+  new WebSocketServer({
+    server
+  })
+
 const kafka = new Kafka({
   clientId: "dashboard-service",
   brokers: [KAFKA_BROKER]
@@ -51,22 +61,73 @@ const consumer = kafka.consumer({
 const pgClient = new Client({
 
   host: POSTGRES_HOST,
-
   port: 5432,
-
   user: POSTGRES_USER,
-
   password: POSTGRES_PASSWORD,
-
   database: POSTGRES_DB
 
 })
 
 /*
-IN-MEMORY CACHE
+WEBSOCKET CLIENTS
 */
 
-const alerts: any[] = []
+const clients =
+  new Set<any>()
+
+wss.on(
+  "connection",
+  (ws) => {
+
+    console.log(
+      "WebSocket client connected"
+    )
+
+    clients.add(ws)
+
+    ws.on(
+      "close",
+      () => {
+
+        clients.delete(ws)
+
+        console.log(
+          "WebSocket client disconnected"
+        )
+
+      }
+
+    )
+
+  }
+)
+
+/*
+BROADCAST ALERT
+*/
+
+function broadcastAlert(
+  alert: any
+) {
+
+  const message =
+    JSON.stringify(alert)
+
+  clients.forEach(
+    (client) => {
+
+      if (
+        client.readyState === 1
+      ) {
+
+        client.send(message)
+
+      }
+
+    }
+  )
+
+}
 
 /*
 DATABASE INITIALIZATION
@@ -81,23 +142,14 @@ async function initDatabase() {
     CREATE TABLE IF NOT EXISTS alerts (
 
       alert_id TEXT PRIMARY KEY,
-
       timestamp TIMESTAMP,
-
       rule_id TEXT,
-
       rule_name TEXT,
-
       severity TEXT,
-
       source_ip TEXT,
-
       username TEXT,
-
       attempts INT,
-
       window_seconds INT,
-
       description TEXT
 
     )
@@ -193,7 +245,6 @@ async function startKafka() {
       await consumer.subscribe({
 
         topic: ALERT_TOPIC,
-
         fromBeginning: true
 
       })
@@ -234,9 +285,9 @@ async function startKafka() {
 
             }
 
-            alerts.push(alert)
-
             await saveAlertToDB(alert)
+
+            broadcastAlert(alert)
 
             console.log(
               "Alert received:",
@@ -296,9 +347,7 @@ app.get(
 
     }
 
-    catch (err) {
-
-      console.error(err)
+    catch {
 
       res
         .status(500)
@@ -325,10 +374,7 @@ app.get(
 
     res.json({
 
-      status: "ok",
-
-      service:
-        "dashboard-service"
+      status: "ok"
 
     })
 
@@ -341,44 +387,28 @@ STARTUP
 
 async function start() {
 
-  try {
+  await initDatabase()
 
-    await initDatabase()
+  await startKafka()
 
-    await startKafka()
+  server.listen(
+    PORT,
+    () => {
 
-    app.listen(
+      console.log(
+        "Dashboard running on port",
+        PORT
+      )
 
-      PORT,
-
-      () => {
-
-        console.log(
-          "Dashboard API running on port",
-          PORT
-        )
-
-      }
-
-    )
-
-  }
-
-  catch (err) {
-
-    console.error(
-      "Dashboard startup error",
-      err
-    )
-
-  }
+    }
+  )
 
 }
 
 start()
 
 /*
-GRACEFUL SHUTDOWN
+SHUTDOWN
 */
 
 async function shutdown() {
@@ -390,6 +420,8 @@ async function shutdown() {
   await consumer.disconnect()
 
   await pgClient.end()
+
+  server.close()
 
   process.exit(0)
 

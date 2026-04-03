@@ -10,4 +10,4 @@ COPY . .
 
 RUN npm run build
 
-CMD ["sh", "-c", "node dist/${ENTRY_FILE}"]
+CMD ["node", "dist/main.js"]

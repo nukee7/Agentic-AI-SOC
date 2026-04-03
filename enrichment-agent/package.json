@@ -5,11 +5,10 @@
     "start": "node dist/consumer.js"
   },
   "dependencies": {
-    "kafkajs": "^2.2.4",
-    "redis": "^4.6.7"
+    "kafkajs": "^2.2.4"
   },
   "devDependencies": {
-    "typescript": "^5.0.0",
-    "@types/node": "^20.0.0"
+    "@types/node": "^20.0.0",
+    "typescript": "^5.0.0"
   }
 }

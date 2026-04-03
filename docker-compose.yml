@@ -124,8 +124,6 @@ services:
 
     restart: always
 
-
-
   dashboard-service:
 
     build: ./dashboard-service

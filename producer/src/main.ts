@@ -239,7 +239,8 @@ function startIngestionServer() {
 /*
 SIMULATION MODE
 Runs when no system log file is found (e.g. Docker on Windows).
-Simulates realistic SSH auth events for testing the full pipeline.
+Simulates realistic mixed SSH + Windows auth events for testing.
+Uses diverse attacker IPs and realistic attack patterns.
 */
 
 function startSimulation() {
@@ -247,35 +248,81 @@ function startSimulation() {
   console.log("No system log found — running simulation mode")
   console.log("Use POST http://localhost:3001/ingest to push real events from Windows")
 
-  const scenarios: { rawLog: string; interval: number }[] = [
-    {
-      rawLog: "Failed password for invalid user root from 192.168.1.105 port 22 ssh2",
-      interval: 3000
-    },
-    {
-      rawLog: "Failed password for admin from 10.0.0.55 port 22 ssh2",
-      interval: 7000
-    },
-    {
-      rawLog: "Accepted password for deploy from 192.168.1.1 port 22 ssh2",
-      interval: 15000
-    },
-    {
-      rawLog: "Invalid user oracle from 203.0.113.42 port 22 ssh2",
-      interval: 5000
-    },
-    {
-      rawLog: "sudo: pam_unix(sudo:auth): authentication failure; logname= uid=1000 euid=0 tty=/dev/pts/0 ruser=ubuntu rhost=  user=ubuntu",
-      interval: 20000
-    }
+  // Diverse attacker IPs (mix of public + private for realism)
+  const attackerIps = [
+    "45.33.32.156",     // known scanner
+    "185.220.101.34",   // tor exit node range
+    "91.240.118.172",   // eastern europe
+    "103.75.201.44",    // asia-pacific
+    "192.168.1.105",    // internal lateral movement
+    "10.0.0.55",        // internal
+    "203.0.113.42",     // documentation range (test)
+    "159.89.174.88",    // cloud VPS
   ]
 
-  for (const scenario of scenarios) {
-    setInterval(async () => {
-      const event = parseLine(scenario.rawLog)
-      if (event) await sendEvent(event)
-    }, scenario.interval)
+  const targetUsers = ["root", "admin", "ubuntu", "deploy", "postgres", "oracle", "test", "guest"]
+
+  function pickRandom<T>(arr: T[]): T {
+    return arr[Math.floor(Math.random() * arr.length)]
   }
+
+  // Scenario 1: SSH brute force — rapid failed logins from same IP
+  const bruteForceIp = pickRandom(attackerIps.filter(ip => !ip.startsWith("192.") && !ip.startsWith("10.")))
+  setInterval(async () => {
+    const user = pickRandom(targetUsers)
+    const event = parseLine(`Failed password for invalid user ${user} from ${bruteForceIp} port 22 ssh2`)
+    if (event) await sendEvent(event)
+  }, 3000)
+
+  // Scenario 2: Scattered failed logins from different IPs
+  setInterval(async () => {
+    const ip = pickRandom(attackerIps)
+    const user = pickRandom(targetUsers)
+    const event = parseLine(`Failed password for ${user} from ${ip} port 22 ssh2`)
+    if (event) await sendEvent(event)
+  }, 8000)
+
+  // Scenario 3: Windows-style failed login (RDP brute force)
+  setInterval(async () => {
+    const ip = pickRandom(attackerIps)
+    const user = pickRandom(targetUsers)
+    const winEvent: SecurityEvent = {
+      eventId: crypto.randomUUID(),
+      timestamp: new Date().toISOString(),
+      host: HOSTNAME,
+      service: "windows-security",
+      logType: "authentication",
+      severity: "warning",
+      sourceIp: ip,
+      username: user,
+      message: `Failed login for ${user} from ${ip}`,
+      rawLog: `Windows Event 4625: Failed login. User: WORKGROUP\\${user} IP: ${ip} LogonType: 10`
+    }
+    await sendEvent(winEvent)
+  }, 6000)
+
+  // Scenario 4: Successful login (legitimate)
+  setInterval(async () => {
+    const event = parseLine("Accepted password for deploy from 192.168.1.1 port 22 ssh2")
+    if (event) await sendEvent(event)
+  }, 20000)
+
+  // Scenario 5: Privilege escalation attempt
+  setInterval(async () => {
+    const user = pickRandom(["ubuntu", "deploy", "www-data"])
+    const event = parseLine(
+      `sudo: pam_unix(sudo:auth): authentication failure; logname= uid=1000 euid=0 tty=/dev/pts/0 ruser=${user} rhost=  user=${user}`
+    )
+    if (event) await sendEvent(event)
+  }, 25000)
+
+  // Scenario 6: Invalid user probing
+  setInterval(async () => {
+    const ip = pickRandom(attackerIps)
+    const fakeUser = pickRandom(["ftpuser", "mysql", "nagios", "tomcat", "jenkins", "backup"])
+    const event = parseLine(`Invalid user ${fakeUser} from ${ip} port 22 ssh2`)
+    if (event) await sendEvent(event)
+  }, 10000)
 }
 
 /*

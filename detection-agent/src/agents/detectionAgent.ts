@@ -53,32 +53,55 @@ const redis = new Redis({
 
 /*
 LOG PARSER
+Supports both Linux/SSH and Windows Security Event Log formats:
+  - SSH:     "Failed password for [invalid user] <user> from <ip>"
+  - Windows: "Windows Event 4625: Failed login. User: [DOMAIN\]<user> IP: <ip>"
+  - Generic: Any event with logType=authentication and severity=warning/critical
 */
 
 function parseFailedLogin(
-  rawLog: string
+  rawLog: string,
+  event?: { logType?: string; severity?: string; sourceIp?: string; username?: string }
 ) {
 
-  const regex =
+  // Pattern 1: Linux/SSH failed password
+  const sshMatch = rawLog.match(
     /Failed password for (?:invalid user )?(\w+) from (\d+\.\d+\.\d+\.\d+)/
-
-  const match =
-    rawLog.match(regex)
-
-  if (!match)
-    return null
-
-  return {
-
-    username: match[1],
-
-    sourceIp: match[2],
-
-    eventType:
-      "authentication_failure"
-
+  )
+  if (sshMatch) {
+    return { username: sshMatch[1], sourceIp: sshMatch[2], eventType: "authentication_failure" }
   }
 
+  // Pattern 2: Windows Event 4625 (failed login)
+  const winMatch = rawLog.match(
+    /Windows Event 4625.*User:\s*(?:\S+\\)?(\S+)\s+IP:\s*(\d+\.\d+\.\d+\.\d+)/
+  )
+  if (winMatch) {
+    return { username: winMatch[1], sourceIp: winMatch[2], eventType: "authentication_failure" }
+  }
+
+  // Pattern 3: Windows failed login (alternate format from event log)
+  const winAlt = rawLog.match(
+    /Failed login.*(?:user|User)\s+(?:\S+\\)?(\S+).*(?:from|IP)\s+(\d+\.\d+\.\d+\.\d+)/i
+  )
+  if (winAlt) {
+    return { username: winAlt[1], sourceIp: winAlt[2], eventType: "authentication_failure" }
+  }
+
+  // Pattern 4: Structured event fallback — use fields directly if log format unknown
+  if (
+    event &&
+    event.logType === "authentication" &&
+    (event.severity === "warning" || event.severity === "critical") &&
+    event.sourceIp &&
+    event.sourceIp !== "127.0.0.1" &&
+    event.sourceIp !== "0.0.0.0" &&
+    event.username
+  ) {
+    return { username: event.username, sourceIp: event.sourceIp, eventType: "authentication_failure" }
+  }
+
+  return null
 }
 
 /*
@@ -260,18 +283,15 @@ async function processEvent(
   }
 
   const rawLog =
-    event.rawLog
-
-  if (!rawLog)
-    return
+    event.rawLog || ""
 
   console.log(
     "[EVENT]",
-    rawLog
+    rawLog || event.message || "no rawLog"
   )
 
   const parsed =
-    parseFailedLogin(rawLog)
+    parseFailedLogin(rawLog, event)
 
   if (!parsed)
     return

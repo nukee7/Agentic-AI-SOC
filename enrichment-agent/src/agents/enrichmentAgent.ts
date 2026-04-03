@@ -1,22 +1,17 @@
 import { Kafka } from "kafkajs"
+import Redis from "ioredis"
 
 /*
 CONFIG
 */
 
 const KAFKA_BROKER = process.env.KAFKA_BROKER || "kafka:9092"
+const REDIS_HOST   = process.env.REDIS_HOST   || "redis"
 const INPUT_TOPIC  = "security_logs"
 const OUTPUT_TOPIC = "enriched_logs"
 
-/*
-Known malicious IPs (static list — replace with threat intel feed)
-*/
-
-const KNOWN_BAD_IPS = new Set([
-  "203.0.113.42",
-  "198.51.100.10",
-  "192.0.2.99",
-])
+const ABUSEIPDB_API_KEY = process.env.ABUSEIPDB_API_KEY || ""
+const IP_CACHE_TTL      = 60 * 60 * 6  // Cache IP reputation for 6 hours
 
 /*
 SERVICES
@@ -25,6 +20,7 @@ SERVICES
 const kafka    = new Kafka({ clientId: "enrichment-agent", brokers: [KAFKA_BROKER] })
 const consumer = kafka.consumer({ groupId: "enrichment-group" })
 const producer = kafka.producer()
+const redis    = new Redis({ host: REDIS_HOST, port: 6379 })
 
 /*
 HELPERS
@@ -52,12 +48,109 @@ function getLoginContext(timestamp: string): "business-hours" | "after-hours" | 
 }
 
 /*
+ABUSEIPDB THREAT INTELLIGENCE
+Checks an IP against AbuseIPDB's real-time database.
+Free tier: 1000 checks/day — results are cached in Redis.
+*/
+
+interface ThreatIntel {
+  isThreatIp: boolean
+  abuseScore: number
+  country: string
+  isp: string
+  totalReports: number
+  source: "abuseipdb" | "cache" | "skipped"
+}
+
+async function checkThreatIntel(ip: string): Promise<ThreatIntel> {
+
+  const skipResult: ThreatIntel = {
+    isThreatIp: false, abuseScore: 0,
+    country: "unknown", isp: "unknown",
+    totalReports: 0, source: "skipped"
+  }
+
+  // Skip private/loopback IPs — they won't exist in threat feeds
+  if (classifyIp(ip) !== "public") return skipResult
+
+  // Check Redis cache first
+  const cached = await redis.get(`threat:${ip}`)
+  if (cached) {
+    const parsed = JSON.parse(cached) as ThreatIntel
+    parsed.source = "cache"
+    return parsed
+  }
+
+  // No API key → skip lookup
+  if (!ABUSEIPDB_API_KEY) {
+    console.log(`[ENRICHMENT] No AbuseIPDB API key — skipping lookup for ${ip}`)
+    return skipResult
+  }
+
+  try {
+    const res = await fetch(
+      `https://api.abuseipdb.com/api/v2/check?ipAddress=${encodeURIComponent(ip)}&maxAgeInDays=90`,
+      {
+        headers: {
+          "Key": ABUSEIPDB_API_KEY,
+          "Accept": "application/json"
+        }
+      }
+    )
+
+    if (!res.ok) {
+      console.error(`[ENRICHMENT] AbuseIPDB error: ${res.status} ${res.statusText}`)
+      return skipResult
+    }
+
+    const body = await res.json() as {
+      data: {
+        abuseConfidenceScore: number
+        countryCode: string
+        isp: string
+        totalReports: number
+      }
+    }
+
+    const result: ThreatIntel = {
+      isThreatIp:   body.data.abuseConfidenceScore >= 25,
+      abuseScore:   body.data.abuseConfidenceScore,
+      country:      body.data.countryCode || "unknown",
+      isp:          body.data.isp || "unknown",
+      totalReports: body.data.totalReports,
+      source:       "abuseipdb"
+    }
+
+    // Cache the result in Redis
+    await redis.setex(`threat:${ip}`, IP_CACHE_TTL, JSON.stringify(result))
+
+    if (result.isThreatIp) {
+      console.log(
+        `[THREAT INTEL] ${ip} flagged! Score: ${result.abuseScore}%`,
+        `| Country: ${result.country} | ISP: ${result.isp}`,
+        `| Reports: ${result.totalReports}`
+      )
+    }
+
+    return result
+
+  } catch (err) {
+    console.error(`[ENRICHMENT] AbuseIPDB lookup failed for ${ip}:`, err)
+    return skipResult
+  }
+}
+
+/*
 MAIN
 */
 
 export async function runEnrichmentAgent() {
 
   console.log("Enrichment agent starting")
+  console.log(ABUSEIPDB_API_KEY
+    ? "AbuseIPDB API key loaded — real-time threat intelligence enabled"
+    : "No AbuseIPDB API key — threat intel disabled (set ABUSEIPDB_API_KEY)"
+  )
 
   await consumer.connect()
   await producer.connect()
@@ -72,13 +165,22 @@ export async function runEnrichmentAgent() {
       if (!raw) return
 
       const event = JSON.parse(raw)
+      const ip = event.sourceIp ?? "0.0.0.0"
+
+      // Look up real threat intelligence
+      const threatIntel = await checkThreatIntel(ip)
 
       const enriched = {
         ...event,
         enrichment: {
-          ipType:        classifyIp(event.sourceIp ?? "0.0.0.0"),
+          ipType:        classifyIp(ip),
           loginContext:  getLoginContext(event.timestamp),
-          isThreatIp:    KNOWN_BAD_IPS.has(event.sourceIp),
+          isThreatIp:    threatIntel.isThreatIp,
+          abuseScore:    threatIntel.abuseScore,
+          country:       threatIntel.country,
+          isp:           threatIntel.isp,
+          totalReports:  threatIntel.totalReports,
+          threatSource:  threatIntel.source,
           isRootAttempt: event.username === "root" || event.username === "admin",
         }
       }
@@ -89,10 +191,11 @@ export async function runEnrichmentAgent() {
       })
 
       console.log(
-        `[ENRICHED] ${event.username}@${event.sourceIp}`,
+        `[ENRICHED] ${event.username}@${ip}`,
         `| ip=${enriched.enrichment.ipType}`,
         `| context=${enriched.enrichment.loginContext}`,
-        enriched.enrichment.isThreatIp ? "| THREAT IP" : "",
+        `| abuse=${threatIntel.abuseScore}% (${threatIntel.source})`,
+        threatIntel.isThreatIp ? "| THREAT IP" : "",
         enriched.enrichment.isRootAttempt ? "| ROOT ATTEMPT" : ""
       )
     }

@@ -81,8 +81,11 @@ services:
     container_name: enrichment-agent
     depends_on:
       - kafka
+      - redis
     environment:
       KAFKA_BROKER: kafka:9092
+      REDIS_HOST: redis
+      ABUSEIPDB_API_KEY: ${ABUSEIPDB_API_KEY:-}
     restart: always
 
   response-agent:
@@ -110,6 +113,15 @@ services:
       POSTGRES_USER: soc_user
       POSTGRES_PASSWORD: soc_password
       POSTGRES_DB: soc_db
+    restart: always
+
+  frontend:
+    build: ./frontend
+    container_name: frontend
+    ports:
+      - "8080:80"
+    depends_on:
+      - dashboard-service
     restart: always
 
 volumes:

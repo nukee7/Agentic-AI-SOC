@@ -102,3 +102,13 @@ services:
         redis://redis:6379
 
     restart: always
+
+    dashboard-service:
+      build: ./dashboard-service
+      container_name: dashboard-service
+
+      ports:
+       - "3000:3000"
+
+      depends_on:
+       - kafka

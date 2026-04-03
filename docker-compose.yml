@@ -16,8 +16,6 @@ services:
 
       - "2181:2181"
 
-
-
   kafka:
 
     image: confluentinc/cp-kafka:7.5.0
@@ -98,17 +96,28 @@ services:
 
       KAFKA_BROKER: kafka:9092
 
-      REDIS_URL:
-        redis://redis:6379
+      REDIS_HOST: redis
 
     restart: always
 
-    dashboard-service:
-      build: ./dashboard-service
-      container_name: dashboard-service
 
-      ports:
-       - "3000:3000"
 
-      depends_on:
-       - kafka
+  dashboard-service:
+
+    build: ./dashboard-service
+
+    container_name: dashboard-service
+
+    depends_on:
+
+      - kafka
+
+    environment:
+
+      KAFKA_BROKER: kafka:9092
+
+    ports:
+
+      - "3000:3000"
+
+    restart: always

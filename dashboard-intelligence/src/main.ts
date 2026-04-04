@@ -1,7 +1,16 @@
-import express from "express"
+import express, {
+  Request,
+  Response
+} from "express"
+
 import { Client } from "pg"
+
 import http from "http"
-import { WebSocketServer } from "ws"
+
+import {
+  WebSocket,
+  WebSocketServer
+} from "ws"
 
 /*
 CONFIG
@@ -34,10 +43,88 @@ const app = express()
 const server =
   http.createServer(app)
 
+/*
+WebSocket server with explicit /ws route
+*/
+
 const wss =
   new WebSocketServer({
-    server
+    noServer: true
   })
+
+/*
+Attach WebSocket upgrade handler
+*/
+
+server.on(
+  "upgrade",
+  (
+    request,
+    socket,
+    head
+  ) => {
+
+    if (
+      request.url === "/ws"
+    ) {
+
+      wss.handleUpgrade(
+        request,
+        socket,
+        head,
+        (ws) => {
+
+          wss.emit(
+            "connection",
+            ws,
+            request
+          )
+
+        }
+      )
+
+    }
+
+    else {
+
+      socket.destroy()
+
+    }
+
+  }
+)
+
+/*
+WebSocket connection
+*/
+
+wss.on(
+  "connection",
+  (
+    ws: WebSocket
+  ) => {
+
+    console.log(
+      "WebSocket client connected"
+    )
+
+    ws.on(
+      "close",
+      () => {
+
+        console.log(
+          "WebSocket client disconnected"
+        )
+
+      }
+    )
+
+  }
+)
+
+/*
+PostgreSQL
+*/
 
 const pgClient =
   new Client({
@@ -69,7 +156,7 @@ async function initDatabase() {
 }
 
 /*
-METRICS
+METRICS QUERIES
 */
 
 async function getSummaryMetrics() {
@@ -93,6 +180,11 @@ async function getSummaryMetrics() {
       FROM incidents
       WHERE status = 'OPEN'
       `
+    )
+    .catch(
+      () => ({
+        rows: [{ count: 0 }]
+      })
     )
 
   return {
@@ -163,7 +255,7 @@ async function getAlertsTimeline() {
           timestamp
         ) AS hour,
 
-        COUNT(*)
+        COUNT(*) AS count
       FROM alerts
       GROUP BY hour
       ORDER BY hour
@@ -175,7 +267,7 @@ async function getAlertsTimeline() {
 }
 
 /*
-COMBINED METRICS
+COLLECT METRICS
 */
 
 async function collectMetrics() {
@@ -210,26 +302,35 @@ async function collectMetrics() {
 }
 
 /*
-WEBSOCKET
+BROADCAST
 */
 
 function broadcastMetrics(
   data: any
 ) {
 
+  console.log(
+    "Broadcasting metrics to",
+    wss.clients.size,
+    "clients"
+  )
+
   wss.clients.forEach(
-    client => {
+    (client: WebSocket) => {
 
       if (
-        client.readyState === 1
+        client.readyState ===
+        WebSocket.OPEN
       ) {
 
         client.send(
           JSON.stringify({
+
             type:
               "metrics_update",
 
             data
+
           })
         )
 
@@ -239,6 +340,10 @@ function broadcastMetrics(
   )
 
 }
+
+/*
+METRICS LOOP
+*/
 
 async function startMetricsLoop() {
 
@@ -281,10 +386,10 @@ API ROUTES
 */
 
 app.get(
-  "/metrics/summary",
+  "/api/metrics/summary",
   async (
-    req,
-    res
+    req: Request,
+    res: Response
   ) => {
 
     const data =
@@ -296,10 +401,10 @@ app.get(
 )
 
 app.get(
-  "/metrics/top-ips",
+  "/api/metrics/top-ips",
   async (
-    req,
-    res
+    req: Request,
+    res: Response
   ) => {
 
     const data =
@@ -311,10 +416,10 @@ app.get(
 )
 
 app.get(
-  "/metrics/severity",
+  "/api/metrics/severity",
   async (
-    req,
-    res
+    req: Request,
+    res: Response
   ) => {
 
     const data =
@@ -326,10 +431,10 @@ app.get(
 )
 
 app.get(
-  "/metrics/timeline",
+  "/api/metrics/timeline",
   async (
-    req,
-    res
+    req: Request,
+    res: Response
   ) => {
 
     const data =
@@ -341,7 +446,7 @@ app.get(
 )
 
 /*
-HEALTH CHECK
+HEALTH
 */
 
 app.get(
@@ -364,7 +469,7 @@ app.get(
 )
 
 /*
-STARTUP
+START
 */
 
 async function start() {

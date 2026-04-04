@@ -3,277 +3,226 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>AgentSOC — Security Dashboard</title>
+  <title>AgentSOC Intelligence Console</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="style.css" />
 </head>
 <body>
-<div class="layout">
-
-  <!-- Sidebar -->
-  <aside class="sidebar">
-    <div class="brand">
-      <span class="brand-icon">&#9898;</span>
-      <span>AgentSOC</span>
-    </div>
-
-    <nav>
-      <button class="nav-btn active" data-page="dashboard">
-        <span class="nav-icon">&#9776;</span>
-        Dashboard
-      </button>
-      <button class="nav-btn" data-page="architecture">
-        <span class="nav-icon">&#9684;</span>
-        Architecture
-      </button>
-    </nav>
-
-    <div class="sidebar-footer">
-      <div class="ws-status">
-        <span class="status-dot" id="status-dot"></span>
-        <span id="status-text">Connecting...</span>
-      </div>
-    </div>
-  </aside>
-
-  <!-- Main -->
-  <main class="content">
-
-    <!-- DASHBOARD PAGE -->
-    <div id="page-dashboard" class="page active">
-
-      <div class="page-top">
+  <div class="shell">
+    <aside class="sidebar">
+      <div class="brand">
+        <span class="brand-mark"></span>
         <div>
-          <h1>Security Dashboard</h1>
-          <p>Real-time threat monitoring and alert tracking</p>
-        </div>
-        <div class="live-badge">
-          <span class="live-dot"></span>
-          LIVE
+          <div class="brand-title">AgentSOC</div>
+          <div class="brand-sub">Intelligence Console</div>
         </div>
       </div>
 
-      <!-- Stats -->
-      <div class="stats-row">
-        <div class="stat-card">
-          <div class="stat-label">Total Alerts</div>
-          <div class="stat-val" id="s-total">—</div>
+      <nav class="nav">
+        <button class="nav-btn active" data-page="dashboard">Live Analytics</button>
+        <button class="nav-btn" data-page="architecture">System Map</button>
+      </nav>
+
+      <div class="sidebar-footer">
+        <div class="ws-status">
+          <span id="status-dot" class="status-dot connecting"></span>
+          <span id="status-text">Connecting to analytics stream</span>
         </div>
-        <div class="stat-card accent-red">
-          <div class="stat-label">High Severity</div>
-          <div class="stat-val" id="s-high">—</div>
-        </div>
-        <div class="stat-card accent-amber">
-          <div class="stat-label">Unique Attackers</div>
-          <div class="stat-val" id="s-ips">—</div>
-        </div>
-        <div class="stat-card accent-green">
-          <div class="stat-label">Last Alert</div>
-          <div class="stat-val sm" id="s-last">—</div>
+        <div class="stamp">
+          Last snapshot
+          <span id="updated-at">Pending</span>
         </div>
       </div>
+    </aside>
 
-      <!-- Two columns -->
-      <div class="two-col">
-
-        <div class="card">
-          <div class="card-head">
-            <span>Live Feed</span>
-            <span class="pulse-dot"></span>
+    <main class="content">
+      <section id="page-dashboard" class="page active">
+        <div class="hero">
+          <div>
+            <p class="eyebrow">Operational View</p>
+            <h1>Security analytics in motion</h1>
+            <p class="hero-copy">Live metrics from the running <code>dashboard-intelligence</code> service, blended from REST snapshots and WebSocket updates.</p>
           </div>
-          <div id="live-feed" class="feed">
-            <div class="feed-empty">Waiting for alerts...</div>
-          </div>
+          <button id="btn-refresh" class="action-btn">Refresh snapshot</button>
         </div>
 
-        <div class="card">
-          <div class="card-head">Alert Breakdown</div>
-          <div id="breakdown" class="breakdown">
-            <div class="feed-empty">No data yet</div>
-          </div>
+        <div class="stats-grid">
+          <article class="stat-card">
+            <span class="stat-label">Alerts / 5 min</span>
+            <strong id="s-alerts-last-5" class="stat-value">0</strong>
+            <span class="stat-note">Recent activity window</span>
+          </article>
+
+          <article class="stat-card danger">
+            <span class="stat-label">Open incidents</span>
+            <strong id="s-incidents-open" class="stat-value">0</strong>
+            <span class="stat-note">Current response backlog</span>
+          </article>
+
+          <article class="stat-card accent">
+            <span class="stat-label">Top source IP</span>
+            <strong id="s-top-source-ip" class="stat-value compact">None</strong>
+            <span class="stat-note">Highest alert volume</span>
+          </article>
+
+          <article class="stat-card success">
+            <span class="stat-label">Tracked attackers</span>
+            <strong id="s-total-tracked-ips" class="stat-value">0</strong>
+            <span class="stat-note">Distinct top-IP rows</span>
+          </article>
         </div>
 
-      </div>
+        <div class="dashboard-grid">
+          <article class="panel">
+            <div class="panel-head">
+              <div>
+                <p class="panel-kicker">Live stream</p>
+                <h2>Metrics pulse</h2>
+              </div>
+              <span class="live-pill">WebSocket</span>
+            </div>
+            <div id="stream-feed" class="feed">
+              <div class="panel-empty">Waiting for the first analytics snapshot.</div>
+            </div>
+          </article>
 
-      <!-- Table -->
-      <div class="card">
-        <div class="card-head">
-          <span>All Alerts</span>
-          <button id="btn-refresh" class="btn-sm">&#8635; Refresh</button>
-        </div>
-        <div class="table-wrap">
-          <table>
-            <thead>
-              <tr>
-                <th>Time</th>
-                <th>Rule</th>
-                <th>Severity</th>
-                <th>Source IP</th>
-                <th>Username</th>
-                <th>Description</th>
-              </tr>
-            </thead>
-            <tbody id="tbl-body">
-              <tr><td colspan="6" class="tbl-empty">Loading...</td></tr>
-            </tbody>
-          </table>
-        </div>
-      </div>
+          <article class="panel">
+            <div class="panel-head">
+              <div>
+                <p class="panel-kicker">Severity mix</p>
+                <h2>Alert distribution</h2>
+              </div>
+            </div>
+            <div id="severity-list" class="metric-list">
+              <div class="panel-empty">Loading severity analytics...</div>
+            </div>
+          </article>
 
-    </div>
+          <article class="panel span-2">
+            <div class="panel-head">
+              <div>
+                <p class="panel-kicker">Hourly volume</p>
+                <h2>Timeline</h2>
+              </div>
+            </div>
+            <div class="timeline-panel">
+              <div id="timeline-empty" class="panel-empty">No timeline data available yet.</div>
+              <div id="timeline-chart" class="timeline-chart"></div>
+            </div>
+          </article>
 
-    <!-- ARCHITECTURE PAGE -->
-    <div id="page-architecture" class="page">
-
-      <div class="page-top">
-        <div>
-          <h1>System Architecture</h1>
-          <p>How threats flow through the pipeline from detection to response</p>
-        </div>
-      </div>
-
-      <!-- Pipeline diagram -->
-      <div class="pipeline-wrap">
-        <div class="pipe-row">
-          <div class="pipe-node clr-src">
-            <div class="pipe-icon">&#128187;</div>
-            <div class="pipe-name">Windows Laptop</div>
-            <div class="pipe-sub">windows-log-sender.ps1<br>HTTP POST → :3001</div>
-          </div>
-          <div class="pipe-node clr-src">
-            <div class="pipe-icon">&#128039;</div>
-            <div class="pipe-name">macOS / Linux</div>
-            <div class="pipe-sub">/var/log/auth.log<br>Auto-streamed</div>
-          </div>
+          <article class="panel">
+            <div class="panel-head">
+              <div>
+                <p class="panel-kicker">Top attackers</p>
+                <h2>Source IP pressure</h2>
+              </div>
+            </div>
+            <div id="top-ips-list" class="ip-list">
+              <div class="panel-empty">Loading source IP analytics...</div>
+            </div>
+          </article>
         </div>
 
-        <div class="pipe-arrow">&#8595;</div>
-
-        <div class="pipe-row">
-          <div class="pipe-node clr-prod">
-            <div class="pipe-icon">&#128225;</div>
-            <div class="pipe-name">Producer</div>
-            <div class="pipe-sub">Parses raw logs<br>HTTP ingestion :3001</div>
+        <article class="panel">
+          <div class="panel-head">
+            <div>
+              <p class="panel-kicker">Analyst queue</p>
+              <h2>Investigation priorities</h2>
+            </div>
           </div>
-        </div>
-
-        <div class="pipe-arrow">&#8595;</div>
-
-        <div class="pipe-row">
-          <div class="pipe-node clr-kafka">
-            <div class="pipe-icon">&#9889;</div>
-            <div class="pipe-name">Apache Kafka</div>
-            <div class="pipe-sub">security_logs topic<br>alerts topic · :9092</div>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Source IP</th>
+                  <th>Alert count</th>
+                  <th>Derived severity</th>
+                  <th>Suggested posture</th>
+                </tr>
+              </thead>
+              <tbody id="tbl-body">
+                <tr><td colspan="4" class="tbl-empty">Loading attacker analytics...</td></tr>
+              </tbody>
+            </table>
           </div>
-        </div>
+        </article>
+      </section>
 
-        <div class="pipe-arrow">&#8595; security_logs</div>
-
-        <div class="pipe-row">
-          <div class="pipe-node clr-agent">
-            <div class="pipe-icon">&#128269;</div>
-            <div class="pipe-name">Detection Agent</div>
-            <div class="pipe-sub">Brute force<br>5 fails / 60s</div>
-          </div>
-          <div class="pipe-node clr-agent">
-            <div class="pipe-icon">&#129504;</div>
-            <div class="pipe-name">Anomaly Agent</div>
-            <div class="pipe-sub">Off-hours logins<br>New IP detection</div>
-          </div>
-          <div class="pipe-node clr-agent">
-            <div class="pipe-icon">&#128270;</div>
-            <div class="pipe-name">Enrichment Agent</div>
-            <div class="pipe-sub">IP classification<br>Threat intel tags</div>
-          </div>
-        </div>
-
-        <div class="pipe-arrow">&#8595; alerts</div>
-
-        <div class="pipe-row">
-          <div class="pipe-node clr-resp">
-            <div class="pipe-icon">&#128683;</div>
-            <div class="pipe-name">Response Agent</div>
-            <div class="pipe-sub">Auto IP blocking<br>1hr TTL in Redis</div>
-          </div>
-          <div class="pipe-node clr-dash">
-            <div class="pipe-icon">&#128202;</div>
-            <div class="pipe-name">Dashboard API</div>
-            <div class="pipe-sub">REST + WebSocket<br>:3000</div>
+      <section id="page-architecture" class="page">
+        <div class="hero compact-hero">
+          <div>
+            <p class="eyebrow">Reference</p>
+            <h1>Analytics pipeline map</h1>
+            <p class="hero-copy">A quick view of how alerts move through Kafka, storage, and the real-time intelligence stream this dashboard consumes.</p>
           </div>
         </div>
 
-        <div class="pipe-arrow">&#8595;</div>
-
-        <div class="pipe-row">
-          <div class="pipe-node clr-db">
-            <div class="pipe-icon">&#128452;</div>
-            <div class="pipe-name">PostgreSQL</div>
-            <div class="pipe-sub">Persistent alert<br>storage · :5432</div>
+        <div class="pipeline-wrap">
+          <div class="pipe-row">
+            <div class="pipe-node clr-prod">
+              <div class="pipe-icon">01</div>
+              <div class="pipe-name">Security Producers</div>
+              <div class="pipe-sub">Events generated from system telemetry and auth activity.</div>
+            </div>
+            <div class="pipe-node clr-kafka">
+              <div class="pipe-icon">02</div>
+              <div class="pipe-name">Kafka Topics</div>
+              <div class="pipe-sub">Shared transport for logs, alerts, and downstream analysis.</div>
+            </div>
+            <div class="pipe-node clr-agent">
+              <div class="pipe-icon">03</div>
+              <div class="pipe-name">SOC Agents</div>
+              <div class="pipe-sub">Detection, anomaly, enrichment, and response coordination.</div>
+            </div>
           </div>
-          <div class="pipe-node clr-db">
-            <div class="pipe-icon">&#9889;</div>
-            <div class="pipe-name">Redis</div>
-            <div class="pipe-sub">Rate tracking<br>Blocked IPs · :6379</div>
+
+          <div class="pipe-arrow">downstream analytics</div>
+
+          <div class="pipe-row">
+            <div class="pipe-node clr-db">
+              <div class="pipe-icon">04</div>
+              <div class="pipe-name">PostgreSQL</div>
+              <div class="pipe-sub">Persistent storage for alerts and incident state.</div>
+            </div>
+            <div class="pipe-node clr-dash">
+              <div class="pipe-icon">05</div>
+              <div class="pipe-name">Dashboard Intelligence</div>
+              <div class="pipe-sub">REST metrics plus WebSocket snapshots every few seconds.</div>
+            </div>
+            <div class="pipe-node clr-ui">
+              <div class="pipe-icon">06</div>
+              <div class="pipe-name">Frontend Console</div>
+              <div class="pipe-sub">This production dashboard updates in real time.</div>
+            </div>
           </div>
-          <div class="pipe-node clr-ui">
-            <div class="pipe-icon">&#128444;</div>
-            <div class="pipe-name">Frontend</div>
-            <div class="pipe-sub">This dashboard<br>:8080</div>
-          </div>
-        </div>
-      </div>
-
-      <!-- Service cards -->
-      <h2 class="section-title">Services</h2>
-      <div class="svc-grid">
-
-        <div class="svc-card">
-          <span class="svc-badge badge-prod">PRODUCER</span>
-          <h3>Log Ingestion</h3>
-          <p>Reads system auth logs or accepts HTTP POST events. Parses raw lines into structured security events and publishes to Kafka.</p>
-          <div class="svc-port">:3001</div>
         </div>
 
-        <div class="svc-card">
-          <span class="svc-badge badge-agent">AGENT</span>
-          <h3>Detection Agent</h3>
-          <p>Tracks failed logins per IP in Redis with a 60s window. Fires a brute force alert at 5+ failures. Deduplicates alerts for 5 minutes.</p>
-          <div class="svc-port">Kafka consumer</div>
+        <div class="svc-grid">
+          <article class="svc-card">
+            <span class="svc-badge badge-prod">REST</span>
+            <h3>Metrics APIs</h3>
+            <p>The dashboard loads summary counts, top IPs, severity distribution, and an hourly timeline from the intelligence backend.</p>
+          </article>
+
+          <article class="svc-card">
+            <span class="svc-badge badge-agent">STREAM</span>
+            <h3>WebSocket updates</h3>
+            <p>Live snapshots from the backend keep the dashboard fresh between manual refreshes and polling intervals.</p>
+          </article>
+
+          <article class="svc-card">
+            <span class="svc-badge badge-dash">OPS</span>
+            <h3>Resilient UX</h3>
+            <p>The UI degrades gracefully when the stream drops by continuing to poll APIs and showing current connection state.</p>
+          </article>
         </div>
+      </section>
+    </main>
+  </div>
 
-        <div class="svc-card">
-          <span class="svc-badge badge-agent">AGENT</span>
-          <h3>Anomaly Agent</h3>
-          <p>Detects logins between 11PM–6AM UTC, first-time IPs for a user, and sudo privilege escalation attempts. Stores seen IPs for 24hrs.</p>
-          <div class="svc-port">Kafka consumer</div>
-        </div>
-
-        <div class="svc-card">
-          <span class="svc-badge badge-agent">AGENT</span>
-          <h3>Enrichment Agent</h3>
-          <p>Classifies every event: IP type (private/public/loopback), known threat IPs check, and login timing context. Publishes to enriched_logs.</p>
-          <div class="svc-port">Kafka consumer</div>
-        </div>
-
-        <div class="svc-card">
-          <span class="svc-badge badge-resp">RESPONSE</span>
-          <h3>Response Agent</h3>
-          <p>Automatically blocks attacker IPs in Redis for 1 hour on high-severity alerts. Maintains daily alert counters per rule for analytics.</p>
-          <div class="svc-port">Kafka consumer</div>
-        </div>
-
-        <div class="svc-card">
-          <span class="svc-badge badge-dash">DASHBOARD</span>
-          <h3>Dashboard Service</h3>
-          <p>Saves alerts to PostgreSQL with deduplication. Serves REST API. Pushes new alerts to all connected browsers via WebSocket in real time.</p>
-          <div class="svc-port">:3000</div>
-        </div>
-
-      </div>
-    </div>
-
-  </main>
-</div>
-
-<script src="app.js"></script>
+  <script src="app.js"></script>
 </body>
 </html>

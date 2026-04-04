@@ -99,16 +99,14 @@ services:
       REDIS_HOST: redis
     restart: always
 
-  dashboard-service:
-    build: ./dashboard-service
-    container_name: dashboard-service
+  dashboard-intelligence:
+    build: ./dashboard-intelligence
+    container_name: dashboard-intelligence
     ports:
       - "3000:3000"
     depends_on:
-      - kafka
       - postgres
     environment:
-      KAFKA_BROKER: kafka:9092
       POSTGRES_HOST: postgres
       POSTGRES_USER: soc_user
       POSTGRES_PASSWORD: soc_password
@@ -121,7 +119,7 @@ services:
     ports:
       - "8080:80"
     depends_on:
-      - dashboard-service
+      - dashboard-intelligence
     restart: always
 
 volumes:

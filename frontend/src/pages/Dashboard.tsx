@@ -12,7 +12,7 @@ function deriveSeverity(count: number) {
 }
 
 export default function Dashboard({ data }: Props) {
-  const { summary, topIps, severity, timeline } = data
+  const { summary, topIps, severity, timeline, responses } = data
 
   const topIp = topIps[0]?.source_ip ?? "—"
   const maxTimeline = Math.max(...timeline.map((t) => t.count), 1)
@@ -121,6 +121,54 @@ export default function Dashboard({ data }: Props) {
             })}
             {timeline.length === 0 && <div className="empty">No data</div>}
           </div>
+        </div>
+
+        {/* Response Actions */}
+        <div className="panel panel-wide">
+          <h3>Response Actions</h3>
+          <p className="panel-sub">Automated responses from the response agent</p>
+          <table className="inv-table">
+            <thead>
+              <tr>
+                <th>Time</th>
+                <th>Action</th>
+                <th>Source IP</th>
+                <th>Reason</th>
+                <th>Severity</th>
+              </tr>
+            </thead>
+            <tbody>
+              {responses.map((r) => {
+                const actionColors: Record<string, string> = {
+                  blocked: "#ff6b7a",
+                  skipped: "#7ef0a8",
+                  already_blocked: "#ffb84d",
+                }
+                return (
+                  <tr key={r.response_id}>
+                    <td className="mono">{new Date(r.timestamp).toLocaleTimeString()}</td>
+                    <td>
+                      <span className="sev-badge" style={{ background: actionColors[r.action] || "#5cc8ff" }}>
+                        {r.action}
+                      </span>
+                    </td>
+                    <td className="mono">{r.source_ip}</td>
+                    <td className="suggestion">{r.reason}</td>
+                    <td>
+                      <span className="sev-badge" style={{ background: r.severity === "high" ? "#ff6b7a" : "#5cc8ff" }}>
+                        {r.severity}
+                      </span>
+                    </td>
+                  </tr>
+                )
+              })}
+              {responses.length === 0 && (
+                <tr>
+                  <td colSpan={5} className="empty">No response actions yet</td>
+                </tr>
+              )}
+            </tbody>
+          </table>
         </div>
 
         {/* Investigation Priorities */}

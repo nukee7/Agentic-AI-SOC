@@ -1,6 +1,7 @@
 import { Kafka } from "kafkajs"
 import Redis from "ioredis"
 import { exec } from "child_process"
+import crypto from "crypto"
 
 /*
 CONFIG
@@ -43,6 +44,10 @@ const kafka = new Kafka({
 const consumer = kafka.consumer({
   groupId: "response-group"
 })
+
+const producer = kafka.producer()
+
+const RESPONSE_TOPIC = "responses"
 
 const redis = new Redis({
   host: REDIS_HOST,
@@ -161,6 +166,35 @@ function scheduleUnblock(
 }
 
 /*
+EMIT RESPONSE EVENT
+*/
+
+async function emitResponse(
+  action: string,
+  sourceIp: string,
+  reason: string,
+  severity: string
+) {
+
+  const event = {
+    responseId: crypto.randomUUID(),
+    timestamp: new Date().toISOString(),
+    action,
+    sourceIp,
+    reason,
+    severity
+  }
+
+  await producer.send({
+    topic: RESPONSE_TOPIC,
+    messages: [{ value: JSON.stringify(event) }]
+  })
+
+  console.log(`[RESPONSE EVENT] ${action} — ${sourceIp} — ${reason}`)
+
+}
+
+/*
 BLOCK ACTION
 */
 
@@ -174,6 +208,8 @@ async function blockIp(
     console.log(
       `[SAFE] Skipping protected IP ${ip}`
     )
+
+    await emitResponse("skipped", ip, "Protected IP", "info")
 
     return
 
@@ -191,6 +227,8 @@ async function blockIp(
       `[SKIP] ${ip} already blocked`
     )
 
+    await emitResponse("already_blocked", ip, reason, "info")
+
     return
 
   }
@@ -206,6 +244,8 @@ async function blockIp(
   console.log(
     `[BLOCKED] ${ip} — ${reason}`
   )
+
+  await emitResponse("blocked", ip, reason, "high")
 
   scheduleUnblock(
     ip,
@@ -369,6 +409,7 @@ export async function runResponseAgent() {
     try {
 
       await consumer.connect()
+      await producer.connect()
 
       await consumer.subscribe({
 

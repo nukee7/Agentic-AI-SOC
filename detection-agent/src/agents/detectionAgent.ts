@@ -32,7 +32,6 @@ IGNORE LIST
 */
 
 const IGNORED_IPS = new Set([
-  "127.0.0.1",
   "0.0.0.0",
   "::1"
 ])

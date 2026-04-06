@@ -8,6 +8,7 @@ const EMPTY: MetricsData = {
   topIps: [],
   severity: [],
   timeline: [],
+  responses: [],
 }
 
 export function useMetrics() {
@@ -19,13 +20,14 @@ export function useMetrics() {
 
   const fetchAll = useCallback(async () => {
     try {
-      const [summary, topIps, severity, timeline] = await Promise.all([
+      const [summary, topIps, severity, timeline, responses] = await Promise.all([
         fetch("/api/metrics/summary").then((r) => r.json()),
         fetch("/api/metrics/top-ips").then((r) => r.json()),
         fetch("/api/metrics/severity").then((r) => r.json()),
         fetch("/api/metrics/timeline").then((r) => r.json()),
+        fetch("/api/metrics/responses").then((r) => r.json()),
       ])
-      setData({ summary, topIps, severity, timeline })
+      setData({ summary, topIps, severity, timeline, responses })
       setLastUpdate(new Date().toISOString())
     } catch {
       // silent — polling fallback
@@ -65,7 +67,7 @@ export function useMetrics() {
     fetchAll()
     connectWs()
 
-    pollRef.current = setInterval(fetchAll, 30_000)
+    pollRef.current = setInterval(fetchAll, 10_000)
 
     return () => {
       wsRef.current?.close()

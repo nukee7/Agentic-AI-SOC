@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(sudo systemsetup:*)",
+      "Bash(ssh -V)",
+      "Bash(chmod:*)"
+    ]
+  }
+}

@@ -1,6 +1,4 @@
-import fs from "fs"
 import http from "http"
-import readline from "readline"
 import crypto from "crypto"
 import { Kafka } from "kafkajs"
 
@@ -9,7 +7,7 @@ CONFIG
 */
 
 const kafka = new Kafka({
-  clientId: "linux-log-producer",
+  clientId: "log-producer",
   brokers: [process.env.KAFKA_BROKER || "kafka:9092"]
 })
 
@@ -17,17 +15,6 @@ const producer = kafka.producer()
 const TOPIC = "security_logs"
 const INGEST_PORT = 3001
 const HOSTNAME = process.env.HOSTNAME || "unknown-host"
-
-/*
-Log paths across systems — Docker on Windows will use simulation
-since /var/log/auth.log won't exist inside the container
-*/
-
-const LOG_PATHS = [
-  "/var/log/auth.log",    // Ubuntu / Debian / Kali
-  "/var/log/secure",      // RHEL / CentOS / Amazon Linux
-  "/var/log/system.log",  // macOS
-]
 
 /*
 EVENT STRUCTURE
@@ -47,74 +34,6 @@ interface SecurityEvent {
 }
 
 /*
-LOG PARSER
-Extracts structured fields from raw auth log lines
-*/
-
-function parseLine(rawLog: string): SecurityEvent | null {
-
-  const patterns = [
-    {
-      regex: /Failed password for (?:invalid user )?(\S+) from (\d+\.\d+\.\d+\.\d+)/,
-      severity: "warning" as const,
-      logType: "authentication",
-      buildMessage: (m: RegExpMatchArray) =>
-        `Failed password for user ${m[1]} from ${m[2]}`
-    },
-    {
-      regex: /Accepted (?:password|publickey) for (\S+) from (\d+\.\d+\.\d+\.\d+)/,
-      severity: "info" as const,
-      logType: "authentication",
-      buildMessage: (m: RegExpMatchArray) =>
-        `Successful login for user ${m[1]} from ${m[2]}`
-    },
-    {
-      regex: /Invalid user (\S+) from (\d+\.\d+\.\d+\.\d+)/,
-      severity: "warning" as const,
-      logType: "authentication",
-      buildMessage: (m: RegExpMatchArray) =>
-        `Invalid user ${m[1]} attempted login from ${m[2]}`
-    },
-    {
-      regex: /sudo:.*authentication failure.*user=(\S+)/,
-      severity: "critical" as const,
-      logType: "privilege-escalation",
-      buildMessage: (m: RegExpMatchArray) =>
-        `Sudo authentication failure for user ${m[1]}`,
-      sourceIp: "127.0.0.1"
-    },
-    {
-      regex: /session opened for user (\S+)/,
-      severity: "info" as const,
-      logType: "session",
-      buildMessage: (m: RegExpMatchArray) =>
-        `Session opened for user ${m[1]}`,
-      sourceIp: "127.0.0.1"
-    },
-  ]
-
-  for (const pattern of patterns) {
-    const match = rawLog.match(pattern.regex)
-    if (match) {
-      return {
-        eventId: crypto.randomUUID(),
-        timestamp: new Date().toISOString(),
-        host: HOSTNAME,
-        service: "linux-auth",
-        logType: pattern.logType,
-        severity: pattern.severity,
-        sourceIp: pattern.sourceIp ?? match[2] ?? "0.0.0.0",
-        username: match[1],
-        message: pattern.buildMessage(match),
-        rawLog
-      }
-    }
-  }
-
-  return null
-}
-
-/*
 SEND TO KAFKA
 */
 
@@ -127,62 +46,16 @@ async function sendEvent(event: SecurityEvent) {
 }
 
 /*
-TAIL LOG FILE
-Reads existing content then watches for new lines
-*/
-
-function tailFile(logFile: string) {
-
-  console.log(`Streaming log file: ${logFile}`)
-
-  let filePosition = 0
-
-  const stream = fs.createReadStream(logFile, { encoding: "utf8" })
-  const rl = readline.createInterface({ input: stream })
-
-  rl.on("line", async (line) => {
-    const event = parseLine(line)
-    if (event) await sendEvent(event)
-  })
-
-  rl.on("close", () => {
-    filePosition = fs.statSync(logFile).size
-    console.log("Initial read complete — watching for new entries...")
-
-    fs.watchFile(logFile, { interval: 1000 }, async () => {
-      const stat = fs.statSync(logFile)
-      if (stat.size <= filePosition) return
-
-      const newStream = fs.createReadStream(logFile, {
-        encoding: "utf8",
-        start: filePosition,
-        end: stat.size
-      })
-      const newRl = readline.createInterface({ input: newStream })
-
-      newRl.on("line", async (line) => {
-        const event = parseLine(line)
-        if (event) await sendEvent(event)
-      })
-
-      newRl.on("close", () => {
-        filePosition = stat.size
-      })
-    })
-  })
-}
-
-/*
 HTTP INGESTION SERVER
-Lets the Windows host POST events directly to the pipeline.
+Accepts real security events from external log forwarders.
 
   POST http://localhost:3001/ingest
   Content-Type: application/json
   Body: { eventId, timestamp, host, service, logType,
           severity, sourceIp, username, message, rawLog }
 
-Use the windows-log-sender.ps1 script on the host to feed
-real Windows Security Event Log entries here.
+Use the log-forwarder.sh script on the host to stream
+real macOS/Linux SSH events into this endpoint.
 */
 
 function startIngestionServer() {
@@ -201,7 +74,7 @@ function startIngestionServer() {
             eventId:   parsed.eventId   || crypto.randomUUID(),
             timestamp: parsed.timestamp || new Date().toISOString(),
             host:      parsed.host      || HOSTNAME,
-            service:   parsed.service   || "windows-security",
+            service:   parsed.service   || "unknown",
             logType:   parsed.logType   || "authentication",
             severity:  parsed.severity  || "warning",
             sourceIp:  parsed.sourceIp  || "0.0.0.0",
@@ -237,111 +110,14 @@ function startIngestionServer() {
 }
 
 /*
-SIMULATION MODE
-Runs when no system log file is found (e.g. Docker on Windows).
-Simulates realistic mixed SSH + Windows auth events for testing.
-Uses diverse attacker IPs and realistic attack patterns.
-*/
-
-function startSimulation() {
-
-  console.log("No system log found — running simulation mode")
-  console.log("Use POST http://localhost:3001/ingest to push real events from Windows")
-
-  // Diverse attacker IPs (mix of public + private for realism)
-  const attackerIps = [
-    "45.33.32.156",     // known scanner
-    "185.220.101.34",   // tor exit node range
-    "91.240.118.172",   // eastern europe
-    "103.75.201.44",    // asia-pacific
-    "192.168.1.105",    // internal lateral movement
-    "10.0.0.55",        // internal
-    "203.0.113.42",     // documentation range (test)
-    "159.89.174.88",    // cloud VPS
-  ]
-
-  const targetUsers = ["root", "admin", "ubuntu", "deploy", "postgres", "oracle", "test", "guest"]
-
-  function pickRandom<T>(arr: T[]): T {
-    return arr[Math.floor(Math.random() * arr.length)]
-  }
-
-  // Scenario 1: SSH brute force — rapid failed logins from same IP
-  const bruteForceIp = pickRandom(attackerIps.filter(ip => !ip.startsWith("192.") && !ip.startsWith("10.")))
-  setInterval(async () => {
-    const user = pickRandom(targetUsers)
-    const event = parseLine(`Failed password for invalid user ${user} from ${bruteForceIp} port 22 ssh2`)
-    if (event) await sendEvent(event)
-  }, 3000)
-
-  // Scenario 2: Scattered failed logins from different IPs
-  setInterval(async () => {
-    const ip = pickRandom(attackerIps)
-    const user = pickRandom(targetUsers)
-    const event = parseLine(`Failed password for ${user} from ${ip} port 22 ssh2`)
-    if (event) await sendEvent(event)
-  }, 8000)
-
-  // Scenario 3: Windows-style failed login (RDP brute force)
-  setInterval(async () => {
-    const ip = pickRandom(attackerIps)
-    const user = pickRandom(targetUsers)
-    const winEvent: SecurityEvent = {
-      eventId: crypto.randomUUID(),
-      timestamp: new Date().toISOString(),
-      host: HOSTNAME,
-      service: "windows-security",
-      logType: "authentication",
-      severity: "warning",
-      sourceIp: ip,
-      username: user,
-      message: `Failed login for ${user} from ${ip}`,
-      rawLog: `Windows Event 4625: Failed login. User: WORKGROUP\\${user} IP: ${ip} LogonType: 10`
-    }
-    await sendEvent(winEvent)
-  }, 6000)
-
-  // Scenario 4: Successful login (legitimate)
-  setInterval(async () => {
-    const event = parseLine("Accepted password for deploy from 192.168.1.1 port 22 ssh2")
-    if (event) await sendEvent(event)
-  }, 20000)
-
-  // Scenario 5: Privilege escalation attempt
-  setInterval(async () => {
-    const user = pickRandom(["ubuntu", "deploy", "www-data"])
-    const event = parseLine(
-      `sudo: pam_unix(sudo:auth): authentication failure; logname= uid=1000 euid=0 tty=/dev/pts/0 ruser=${user} rhost=  user=${user}`
-    )
-    if (event) await sendEvent(event)
-  }, 25000)
-
-  // Scenario 6: Invalid user probing
-  setInterval(async () => {
-    const ip = pickRandom(attackerIps)
-    const fakeUser = pickRandom(["ftpuser", "mysql", "nagios", "tomcat", "jenkins", "backup"])
-    const event = parseLine(`Invalid user ${fakeUser} from ${ip} port 22 ssh2`)
-    if (event) await sendEvent(event)
-  }, 10000)
-}
-
-/*
 START
 */
 
 async function start() {
   await producer.connect()
   console.log("Producer connected to Kafka")
-
+  console.log("Waiting for real events via /ingest endpoint...")
   startIngestionServer()
-
-  const logFile = LOG_PATHS.find(p => fs.existsSync(p))
-
-  if (logFile) {
-    tailFile(logFile)
-  } else {
-    startSimulation()
-  }
 }
 
 start().catch(err => {

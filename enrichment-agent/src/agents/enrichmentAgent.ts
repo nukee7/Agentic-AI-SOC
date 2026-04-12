@@ -33,6 +33,11 @@ const WINDOW_SECONDS =
 const DEDUP_SECONDS =
   Number(process.env.DEDUP_SECONDS) || 300
 
+const IGNORED_IPS = new Set([
+  "0.0.0.0",
+  "::1"
+])
+
 /*
 SERVICES
 */
@@ -103,11 +108,71 @@ function getLoginContext(
 }
 
 /*
-CORRELATION
-Track failures
+LOG PARSER
+(ported from detection-agent)
 */
 
-async function trackFailures(
+function parseFailedLogin(
+  rawLog: string,
+  event?: any
+) {
+
+  const sshMatch = rawLog.match(
+    /Failed password for (?:invalid user )?(\w+) from (\d+\.\d+\.\d+\.\d+)/
+  )
+
+  if (sshMatch) {
+    return {
+      username: sshMatch[1],
+      sourceIp: sshMatch[2]
+    }
+  }
+
+  const winMatch = rawLog.match(
+    /Windows Event 4625.*User:\s*(?:\S+\\)?(\S+)\s+IP:\s*(\d+\.\d+\.\d+\.\d+)/
+  )
+
+  if (winMatch) {
+    return {
+      username: winMatch[1],
+      sourceIp: winMatch[2]
+    }
+  }
+
+  const winAlt = rawLog.match(
+    /Failed login.*(?:user|User)\s+(?:\S+\\)?(\S+).*(?:from|IP)\s+(\d+\.\d+\.\d+\.\d+)/i
+  )
+
+  if (winAlt) {
+    return {
+      username: winAlt[1],
+      sourceIp: winAlt[2]
+    }
+  }
+
+  if (
+    event &&
+    event.logType === "authentication" &&
+    (event.severity === "warning" ||
+     event.severity === "critical") &&
+    event.sourceIp &&
+    event.username
+  ) {
+    return {
+      username: event.username,
+      sourceIp: event.sourceIp
+    }
+  }
+
+  return null
+
+}
+
+/*
+TRACK FAILURES
+*/
+
+async function trackFailure(
   ip: string
 ) {
 
@@ -158,7 +223,7 @@ async function shouldEmit(
 }
 
 /*
-ALERT
+EMIT ALERT
 */
 
 async function emitAlert(
@@ -190,10 +255,10 @@ async function emitAlert(
       new Date().toISOString(),
 
     ruleId:
-      "SSH_BRUTE_FORCE",
+      "AUTH_BRUTE_FORCE",
 
     ruleName:
-      "Multiple failed SSH logins",
+      "Multiple failed authentication attempts",
 
     severity:
       "high",
@@ -205,7 +270,10 @@ async function emitAlert(
     attempts,
 
     windowSeconds:
-      WINDOW_SECONDS
+      WINDOW_SECONDS,
+
+    description:
+      "Possible brute force authentication attack"
 
   }
 
@@ -246,7 +314,7 @@ async function createIncident(
       crypto.randomUUID(),
 
     title:
-      "SSH brute force attack",
+      "Brute force authentication attack",
 
     severity:
       "high",
@@ -317,7 +385,7 @@ async function processEvent(
     "0.0.0.0"
 
   /*
-  ENRICHMENT
+  ENRICHMENT — always runs
   */
 
   const enriched = {
@@ -345,10 +413,6 @@ async function processEvent(
 
   }
 
-  /*
-  SEND ENRICHED EVENT
-  */
-
   await producer.send({
 
     topic: OUTPUT_TOPIC,
@@ -363,15 +427,27 @@ async function processEvent(
   })
 
   /*
-  CORRELATION
+  DETECTION — only for failed logins
   */
 
+  const rawLog =
+    event.rawLog || ""
+
+  const parsed =
+    parseFailedLogin(rawLog, event)
+
+  if (!parsed)
+    return
+
+  if (IGNORED_IPS.has(parsed.sourceIp))
+    return
+
   const attempts =
-    await trackFailures(ip)
+    await trackFailure(parsed.sourceIp)
 
   console.log(
     "[COUNT]",
-    ip,
+    parsed.sourceIp,
     attempts
   )
 
@@ -381,19 +457,19 @@ async function processEvent(
   ) {
 
     await emitAlert(
-      ip,
-      event.username,
+      parsed.sourceIp,
+      parsed.username,
       attempts
     )
 
     await createIncident(
-      ip,
-      event.username,
+      parsed.sourceIp,
+      parsed.username,
       attempts
     )
 
     await redis.del(
-      `failures:${ip}`
+      `failures:${parsed.sourceIp}`
     )
 
   }

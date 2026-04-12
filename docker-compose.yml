@@ -60,20 +60,6 @@ services:
       ENTRY_FILE: main.js
     restart: always
 
-  detection-agent:
-    build: ./detection-agent
-    container_name: detection-agent
-    depends_on:
-      kafka:
-        condition: service_healthy
-      redis:
-        condition: service_started
-    environment:
-      KAFKA_BROKER: kafka:9092
-      REDIS_URL: redis://redis:6379
-      REDIS_HOST: redis
-    restart: always
-
   anomaly-agent:
     build: ./anomaly-agent
     container_name: anomaly-agent
